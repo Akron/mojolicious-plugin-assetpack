@@ -179,7 +179,6 @@ sub process {
   my $extension = $moniker =~ /\.(\w{1,4})$/ ? $1 : '';
   my $mode = $self->rebuild ? O_CREAT | O_WRONLY : O_CREAT | O_EXCL | O_WRONLY;
   my $out_file = catfile $self->{out_dir}, $moniker;
-  my $out_file_with_md5 = $out_file;
   my $doc = '';
   my $fh;
 
@@ -207,22 +206,23 @@ sub process {
   $fh->truncate(0);
   $fh->syswrite($doc);
   $fh->close or die "close $out_file: $!";
-
-  $out_file_with_md5 =~ s/(\.\w+)$/{ '-' . md5_sum($doc) . $1 }/e;
-  $self->{assets}{$moniker} = basename $out_file_with_md5;
-  return if -e $out_file_with_md5;
-  rename $out_file, $out_file_with_md5 or die "Could not rename $out_file => $out_file_with_md5: $!";
+  $self->_remove_processed($moniker) if $self->{cleanup};
+  $self->_rename_processed($moniker, md5_sum $doc);
 }
 
 =head2 register
 
   plugin 'AssetPack', {
+    cleanup => $bool, # default is true
     minify => $bool, # compress assets
     no_autodetect => $bool, # disable preprocessor autodetection
     rebuild => $bool, # overwrite if assets exists
   };
 
 Will register the C<compress> helper. All arguments are optional.
+
+"cleanup" will remove any old processed files. You want to disable this if you
+have other web sites that need to access an old version of the minified files.
 
 "minify" will default to true if L<Mojolicious/mode> is "production".
 
@@ -241,6 +241,7 @@ sub register {
   $self->preprocessors->detect unless $config->{no_autodetect};
 
   $self->{assets} = {};
+  $self->{cleanup} //= 1;
   $self->{log} = $app->log;
   $self->{out_dir} = $app->home->rel_dir('public/packed');
   $self->{static} = $app->static;
@@ -289,6 +290,29 @@ sub _find_processed {
     $self->{assets}{$moniker} = $file;
     last;
   }
+}
+
+sub _remove_processed {
+  my($self, $moniker) = @_;
+  my($name, $ext) = $moniker =~ m!^(.+)\.(\w+)$!;
+
+  opendir(my $DH, $self->{out_dir});
+  for my $file (readdir $DH) {
+    $file =~ m!^$name-\w{32}\.$ext! or next;
+    $self->{log}->debug("Removing $self->{out_dir}/$file");
+    unlink catfile($self->{out_dir}, $file) or die "Could not unlink $self->{out_dir}/$file: $!";
+  }
+}
+
+sub _rename_processed {
+  my($self, $moniker, $checksum) = @_;
+  my($name, $ext) = $moniker =~ m!^(.+)\.(\w+)$!;
+  my $source = catfile $self->{out_dir}, $moniker;
+  my $destination = catfile $self->{out_dir}, "$name-$checksum.$ext";
+
+  $self->{assets}{$moniker} = "$name-$checksum.$ext";
+  return if -e $destination;
+  rename $source, $destination or die "Could not rename $source to $destination: $!";
 }
 
 =head1 AUTHOR
