@@ -43,12 +43,13 @@ This plugin will compress scss, less, css and javascript with the help of
 external applications on startup. The result will be one file with all the
 sources combined. This file is stored in L</Packed directory>.
 
-This is done using L</process>.
-
-The actual file requested will also contain a md5 sum of the content of the
-file. This is to help refreshing cache on change. Example:
+The files in the packed directory will have a checksum added to the
+filename which will ensure broken browsers request a new version once the
+file is changed. Example:
 
   <script src="/packed/app-ed6d968e39843a556dbe6dad8981e3e0.js">
+
+This is done using L</process>.
 
 =head2 Development mode
 
