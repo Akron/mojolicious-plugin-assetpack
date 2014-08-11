@@ -163,6 +163,10 @@ NOTE! You need to have a trailing "/" at the end of the string.
 
 Set this to true if the assets should be minified.
 
+The reason you want to set this attribute to "1" is to allow two
+assets to co-exist: One minified for production, and one expanded
+for development.
+
 =head2 preprocessors
 
 Holds a L<Mojolicious::Plugin::AssetPack::Preprocessors> object.
@@ -296,11 +300,13 @@ The result file will be stored in L</Packed directory>.
 sub process {
   my ($self, $moniker, @files) = @_;
   my ($md5_sum, $files) = $self->_read_files(@files);
+  my $mode = $self->{mode};
   my $out_file = $moniker;
   my $processed = '';
   my @missing;
 
-  $out_file =~ s/\.(\w+)$/-$md5_sum.$1/;
+  $mode = "-$mode" if $mode;
+  $out_file =~ s/\.(\w+)$/-$md5_sum$mode.$1/;
 
   if (!$ENV{MOJO_ASSETPACK_NO_CACHE} and $self->{static}->file(catfile 'packed', $out_file)) {
     $self->{log}->debug("Using existing asset for $moniker");
@@ -341,14 +347,48 @@ sub process {
 =head2 register
 
   plugin AssetPack => {
-    base_url => $str, # default to "/packed"
-    minify => $bool, # compress assets
-    no_autodetect => $bool, # disable preprocessor autodetection
+    base_url => $str,
+    minify => $bool,
+    mode => $str,
+    no_autodetect => $bool,
   };
 
 Will register the C<compress> helper. All arguments are optional.
 
-"minify" will default to true if L<Mojolicious/mode> is "production".
+=over 4
+
+=item * base_url
+
+See the attribute L</base_url>.
+
+=item * minify
+
+L</minify> will default to true if L<Mojolicious/mode> is "production".
+
+See the attribute L</minify> for more details
+
+=item * mode
+
+This attribute controls if an extra string should be added to the packed
+filename. Example:
+
+  # plugin AssetPack => { mode => 1 } and $app->mode("production")
+  /packed/asset-ed6d968e39843a556dbe6dad8981e3e0.css
+
+  # plugin AssetPack => { mode => 1 } and $app->mode("development")
+  /packed/asset-ed6d968e39843a556dbe6dad8981e3e0-development.css
+
+  # plugin AssetPack => { mode => "whatever" }
+  /packed/asset-ed6d968e39843a556dbe6dad8981e3e0-whatever.css
+
+NOTE: "mode" is EXPERIMENTAL.
+
+=item * no_autodetect
+
+Setting this to true, will disable
+L<preprocessor autodetection|Mojolicious::Plugin::AssetPack::Preprocessors/detect>.
+
+=back
 
 =cut
 
@@ -366,9 +406,12 @@ sub register {
   $self->{log} = $app->log;
   $self->{static} = $app->static;
 
+  $self->{mode} = $config->{mode} || '';
+  $self->{mode} = $app->mode eq 'production' ? '' : $app->mode if $self->{mode} eq '1';
+
   warn "[ASSETPACK] Will rebuild assets on each request.\n" if DEBUG and $ENV{MOJO_ASSETPACK_NO_CACHE};
 
-  if($config->{out_dir}) {
+  if ($config->{out_dir}) {
     $self->out_dir($config->{out_dir});
     push @{ $app->static->paths } , $config->{out_dir};
   }
@@ -379,7 +422,7 @@ sub register {
     }
   }
 
-  unless(-d $self->out_dir) {
+  if (!-d $self->out_dir) {
     mkdir $self->out_dir or die "AssetPack could not create out_dir '$self->{out_dir}': $!";
   }
 
